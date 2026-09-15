@@ -62,7 +62,12 @@ func sendErrorResponse(conn net.Conn, err error, message string) {
 	}
 }
 
-func (server *Server) handleRequest(conn net.Conn) {
+// errClientClosed is returned when the client asked to end the connection.
+var errClientClosed = errors.New("client closed connection")
+
+// handleRequest serves a single request. A non-nil error means the connection
+// is finished and must be closed by the caller.
+func (server *Server) handleRequest(conn net.Conn) error {
 
 	// read request from connection
 	request, err := readRequest(conn)
@@ -70,12 +75,12 @@ func (server *Server) handleRequest(conn net.Conn) {
 	// check for read timeout error
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return
+		return nil
 	}
-	// handle error
+	// the connection is unusable once a read fails, so don't try to reply on it
 	if err != nil {
-		sendErrorResponse(conn, err, "error while reading request")
-		return
+		slog.Error(err.Error(), "msg", "error while reading request")
+		return err
 	}
 
 	// interpret request body based on op code
@@ -98,19 +103,13 @@ func (server *Server) handleRequest(conn net.Conn) {
 		// extract key value pair from request body
 		key, value := decodeInsertRequestBody(request.body)
 
-		// handle error
-		if err != nil {
-			sendErrorResponse(conn, err, "error while decoding insert request")
-			return
-		}
-
 		// call insert function
 		err = server.bPlusTree.Insert(key, value)
 
 		// handle error
 		if err != nil {
 			sendErrorResponse(conn, err, "error occured in data structure layer")
-			return
+			return nil
 
 		}
 
@@ -128,19 +127,13 @@ func (server *Server) handleRequest(conn net.Conn) {
 		// extract key from request body
 		key := decodeDeleteRequestBody(request.body)
 
-		// handle error
-		if err != nil {
-			sendErrorResponse(conn, err, "error while decoding delete request")
-			return
-		}
-
 		// call delete function
 		err = server.bPlusTree.Delete(key)
 
 		// handle error
 		if err != nil {
 			sendErrorResponse(conn, err, "error occured in data structure layer")
-			return
+			return nil
 
 		}
 
@@ -158,30 +151,18 @@ func (server *Server) handleRequest(conn net.Conn) {
 		// extract key from request body
 		key := decodeGetRequestBody(request.body)
 
-		// handle error
-		if err != nil {
-			sendErrorResponse(conn, err, "error while decoding get request")
-			return
-		}
-
-		slog.Info(fmt.Sprintf("received get request for key %d", key))
-
 		// call get function
 		value, err := server.bPlusTree.Get(key)
-
-		slog.Info(fmt.Sprintf("value => %v", value))
 
 		// handle error
 		if err != nil {
 			sendErrorResponse(conn, err, "error occured in data structure layer")
-			return
+			return nil
 
 		}
 
 		// create success response
 		response := encodeGetResponse(key, value)
-
-		slog.Info(fmt.Sprintf("get response => %v", response))
 
 		// send response
 		if _, err = conn.Write(response); err != nil {
@@ -199,10 +180,8 @@ func (server *Server) handleRequest(conn net.Conn) {
 			slog.Error(err.Error(), "msg", "error while writing to conn")
 		}
 
-		// close connection
-		if err := conn.Close(); err != nil {
-			slog.Error(err.Error(), "msg", "error while closing connection")
-		}
+		// the caller closes the connection
+		return errClientClosed
 
 	// handle SHUTDOWN request
 	case "S":
@@ -220,11 +199,12 @@ func (server *Server) handleRequest(conn net.Conn) {
 
 	}
 
+	return nil
 }
 func (server *Server) handleClient(conn net.Conn, wg *sync.WaitGroup) {
 
 	defer wg.Done()
-	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+
 	for {
 
 		select {
@@ -236,7 +216,18 @@ func (server *Server) handleClient(conn net.Conn, wg *sync.WaitGroup) {
 
 		default:
 
-			server.handleRequest(conn)
+			// the deadline must be refreshed every pass, otherwise it expires
+			// once and every later read fails immediately.
+			if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+				conn.Close()
+				return
+			}
+
+			// any error means the connection is done, stop the goroutine
+			if err := server.handleRequest(conn); err != nil {
+				conn.Close()
+				return
+			}
 		}
 
 	}
@@ -254,7 +245,12 @@ func (server *Server) listen(listenerWaitGroup, clientWaitGroup *sync.WaitGroup)
 			slog.Error(err.Error(), "msg", "listener closed")
 			return
 		}
-		slog.Info("client joined from " + conn.LocalAddr().String())
+		// conn is nil on any other error, so don't dereference it
+		if err != nil {
+			slog.Error(err.Error(), "msg", "error while accepting connection")
+			continue
+		}
+		slog.Info("client joined from " + conn.RemoteAddr().String())
 		clientWaitGroup.Add(1)
 		go server.handleClient(conn, clientWaitGroup)
 

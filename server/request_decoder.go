@@ -2,10 +2,10 @@ package server
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
 	"slices"
+	"time"
 )
 
 var (
@@ -21,14 +21,10 @@ func readNBytes(reader io.Reader, N int) ([]byte, error) {
 
 	data := make([]byte, N)
 
-	n, err := reader.Read(data)
-
-	if err != nil {
+	// a single Read may return fewer bytes than requested when a request is
+	// split across TCP segments, so read until the buffer is full.
+	if _, err := io.ReadFull(reader, data); err != nil {
 		return nil, err
-	}
-
-	if n != N {
-		return nil, fmt.Errorf("incomplete read error")
 	}
 
 	return data, nil
@@ -50,6 +46,12 @@ func readRequest(conn net.Conn) (*Request, error) {
 	opCodeByte, err := readNBytes(conn, 1)
 
 	if err != nil {
+		return nil, err
+	}
+
+	// the read deadline only exists to poll for shutdown between requests.
+	// clear it so the rest of the request is read to completion.
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
 		return nil, err
 	}
 
