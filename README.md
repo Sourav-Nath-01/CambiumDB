@@ -17,8 +17,9 @@ binary protocol.
 
 ## Features
 
-- **B+ tree indexing** — supports key-based lookup and sequential iteration over all items. Multiple
-  independent B+ trees can live in one database file.
+- **B+ tree indexing** — supports key-based lookup, deletion, and sequential iteration over all
+  items. Nodes split as they fill up; deletion marks the entry free in its leaf without merging or
+  rebalancing nodes. Multiple independent B+ trees can live in one database file.
 - **Slotted page format** — B+ tree nodes are laid out as slotted pages, supporting variable-size
   records and in-page compaction to reclaim fragmented space.
 - **Buffer pool manager** — caches 4 KB pages in a fixed set of frames, with an LRU replacer
@@ -31,7 +32,8 @@ binary protocol.
   read, so silent corruption is detected rather than propagated into the tree.
 - **Crash recovery** — page-level modifications are appended to a
   [write-ahead log](https://github.com/Adarsh-Kmt/Lucario) before being persisted, and replayed on
-  restart after an unclean shutdown.
+  restart after an unclean shutdown. Deletes are the exception: the WAL has no record type for
+  removing a leaf entry, so a delete is durable only once its page is flushed.
 - **TCP server** — a binary request/response protocol over TCP for `INSERT`, `GET`, `DELETE`, `PING`,
   `CLOSE`, and `SHUTDOWN`.
 
@@ -88,8 +90,10 @@ the same encoding.
 | `C` | Close connection | — |
 | `S` | Shut down server | — |
 
-Responses start with `O` on success or `E` on error. A successful `GET` returns the key and value as
-length-prefixed fields; an error response returns the message as a length-prefixed string.
+Responses start with `O` on success or `E` on error. A successful `GET` follows the status byte with
+a little-endian `uint32` body length, then the key and value as length-prefixed fields. `INSERT`,
+`DELETE`, `PING` and `CLOSE` reply with the status byte alone. An error response follows the `E`
+with the message as a length-prefixed string (no body-length field).
 
 ## Technical challenges solved
 
@@ -158,7 +162,7 @@ record bytes. Space from deleted records is reclaimed by compacting the page whe
 
 | Package | Responsibility |
 |---|---|
-| [bplustree/](bplustree/) | B+ tree insert, get, delete, iteration, and node split/merge |
+| [bplustree/](bplustree/) | B+ tree insert, get, delete, iteration, and node splitting |
 | [bufferpoolmanager/](bufferpoolmanager/) | Frame management, LRU replacer, Direct I/O disk manager |
 | [pagecodec/](pagecodec/) | Encoding and decoding slotted pages as internal and leaf nodes |
 | [storageengine/](storageengine/) | Ties the layers together; WAL recovery |

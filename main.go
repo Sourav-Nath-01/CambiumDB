@@ -36,4 +36,15 @@ func main() {
 	}
 
 	server.Run()
+
+	// Run returns once every client has exited. Flushing the buffer pool writes
+	// the dirty pages and the metadata page to disk, without which nothing
+	// inserted during this run would survive the restart.
+	if err := bufferPoolManager.Close(); err != nil {
+		panic(err)
+	}
+
+	if err := wal.Close(); err != nil {
+		panic(err)
+	}
 }
