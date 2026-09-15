@@ -547,8 +547,64 @@ func (bptree *BPlusTree) writeTraversal(key []byte, value []byte, cursor *WriteC
 	}
 }
 
+// Delete removes a key from the B+ tree. The element is marked deleted in its
+// leaf node and its space reclaimed when the page is compacted. Nodes are not
+// merged or rebalanced, so a leaf may be left under-occupied.
 func (bptree *BPlusTree) Delete(key []byte) error {
+
+	bptree.bPlusTreeMutex.Lock()
+	defer bptree.bPlusTreeMutex.Unlock()
+
+	if bptree.rootNodePageId == 0 {
+		return fmt.Errorf("key %s not found", string(key))
+	}
+
+	leafNodePageId, err := bptree.findLeafNodePageId(key)
+
+	if err != nil {
+		return err
+	}
+
+	leafNodeGuard, err := bptree.bufferPoolManager.NewWriteGuard(leafNodePageId)
+
+	if err != nil {
+		slog.Error("Failed to create write guard for leaf node", "error", err.Error(), "function", "Delete", "at", "btree")
+		return err
+	}
+
+	defer leafNodeGuard.Done()
+
+	if !NewLeafNodeWriter(leafNodeGuard).DeleteKeyValue(key) {
+		return fmt.Errorf("key %s not found", string(key))
+	}
+
 	return nil
+}
+
+// findLeafNodePageId descends from the root node to the leaf node a key belongs to.
+func (bptree *BPlusTree) findLeafNodePageId(key []byte) (uint64, error) {
+
+	pageId := bptree.rootNodePageId
+
+	for {
+
+		readGuard, err := bptree.bufferPoolManager.NewReadGuard(pageId)
+
+		if err != nil {
+			slog.Error("Failed to create read guard", "page_ID", pageId, "error", err.Error(), "function", "findLeafNodePageId", "at", "btree")
+			return 0, err
+		}
+
+		if NewReadCursor(readGuard).IsLeafNode() {
+			readGuard.Done()
+			return pageId, nil
+		}
+
+		childNodePageId := NewInternalNodeReader(readGuard).FindNextChildNodePageId(key)
+		readGuard.Done()
+
+		pageId = childNodePageId
+	}
 }
 func (bptree *BPlusTree) Close() {
 	bptree.metadata.RootPages[bptree.BPlusTreeId] = bptree.rootNodePageId

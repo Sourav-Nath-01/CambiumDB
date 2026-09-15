@@ -229,6 +229,91 @@ func (ts *BPlusTreeTestSuite) TestInsertEmptyValue() {
 	ts.Assert().Equal(value, retrievedValue)
 }
 
+func (ts *BPlusTreeTestSuite) TestDeleteExistingKey() {
+	key := []byte("delete_me")
+	value := []byte("some_value")
+
+	err := ts.btree.Insert(key, value)
+	ts.Require().NoError(err)
+
+	// a key that is still present must be deleted successfully
+	err = ts.btree.Delete(key)
+	ts.Require().NoError(err)
+
+	// and must no longer be readable
+	_, err = ts.btree.Get(key)
+	ts.Assert().Error(err)
+}
+
+func (ts *BPlusTreeTestSuite) TestDeleteLeavesOtherKeysIntact() {
+	testData := map[string]string{
+		"key1": "value1",
+		"key2": "value2",
+		"key3": "value3",
+	}
+
+	for key, value := range testData {
+		err := ts.btree.Insert([]byte(key), []byte(value))
+		ts.Require().NoError(err)
+	}
+
+	err := ts.btree.Delete([]byte("key2"))
+	ts.Require().NoError(err)
+
+	_, err = ts.btree.Get([]byte("key2"))
+	ts.Assert().Error(err)
+
+	for _, key := range []string{"key1", "key3"} {
+		retrievedValue, err := ts.btree.Get([]byte(key))
+		ts.Require().NoError(err)
+		ts.Assert().Equal([]byte(testData[key]), retrievedValue)
+	}
+}
+
+func (ts *BPlusTreeTestSuite) TestDeleteNonExistentKey() {
+	err := ts.btree.Insert([]byte("present"), []byte("value"))
+	ts.Require().NoError(err)
+
+	err = ts.btree.Delete([]byte("absent"))
+	ts.Assert().Error(err)
+}
+
+func (ts *BPlusTreeTestSuite) TestDeleteFromEmptyTree() {
+	err := ts.btree.Delete([]byte("any_key"))
+	ts.Assert().Error(err)
+}
+
+func (ts *BPlusTreeTestSuite) TestDeleteAfterSplitting() {
+	// large values force page splits, so the delete has to descend through an
+	// internal node to reach the right leaf
+	numElements := 4
+	largeValue := make([]byte, 1000)
+	for i := range largeValue {
+		largeValue[i] = byte('A' + (i % 26))
+	}
+
+	for i := range numElements {
+		key := []byte(fmt.Sprintf("large_key_%02d", i))
+		err := ts.btree.Insert(key, largeValue)
+		ts.Require().NoError(err)
+	}
+
+	deletedKey := []byte(fmt.Sprintf("large_key_%02d", 0))
+	err := ts.btree.Delete(deletedKey)
+	ts.Require().NoError(err)
+
+	_, err = ts.btree.Get(deletedKey)
+	ts.Assert().Error(err)
+
+	// every other key must still be reachable
+	for i := 1; i < numElements; i++ {
+		key := []byte(fmt.Sprintf("large_key_%02d", i))
+		retrievedValue, err := ts.btree.Get(key)
+		ts.Require().NoError(err)
+		ts.Assert().Equal(largeValue, retrievedValue)
+	}
+}
+
 func TestBPlusTree(t *testing.T) {
 	suite.Run(t, new(BPlusTreeTestSuite))
 }
