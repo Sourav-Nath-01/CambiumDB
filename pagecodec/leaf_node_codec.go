@@ -402,7 +402,6 @@ func (codec LeafNodeCodec) InsertElement(page []byte, key []byte, value []byte) 
 	codec.headerCodec.setFreeSpaceBegin(headerBytes, header.freeSpaceBegin)
 	// update number of slots field in header region
 
-	fmt.Println("number of slots after inserting key = " + string(key) + " = " + string(int(header.numSlots)))
 	codec.headerCodec.setNumSlots(headerBytes, int(header.numSlots)+1)
 	codec.headerCodec.SetIsPageFilled(headerBytes, true)
 	return true

@@ -1,10 +1,10 @@
 package main
 
 import (
+	lucario "github.com/Adarsh-Kmt/Lucario"
 	bplustree "github.com/Sourav-Nath-01/CambiumDB/bplustree"
 	bpm "github.com/Sourav-Nath-01/CambiumDB/bufferpoolmanager"
 	server "github.com/Sourav-Nath-01/CambiumDB/server"
-	lucario "github.com/Adarsh-Kmt/Lucario"
 )
 
 func main() {

@@ -164,6 +164,12 @@ record bytes. Space from deleted records is reclaimed by compacting the page whe
 | [storageengine/](storageengine/) | Ties the layers together; WAL recovery |
 | [server/](server/) | TCP server, request decoding, response encoding |
 
+## Acknowledgements
+
+Write-ahead logging is provided by [Lucario](https://github.com/Adarsh-Kmt/Lucario), an external
+library. CambiumDB integrates it for durability and replays its records during crash recovery, but
+the WAL implementation itself is not part of this repository.
+
 ## License
 
 Released under the [MIT License](LICENSE).

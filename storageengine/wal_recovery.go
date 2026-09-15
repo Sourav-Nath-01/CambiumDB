@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
+	lucario "github.com/Adarsh-Kmt/Lucario"
 	bplustree "github.com/Sourav-Nath-01/CambiumDB/bplustree"
 	bpm "github.com/Sourav-Nath-01/CambiumDB/bufferpoolmanager"
-	lucario "github.com/Adarsh-Kmt/Lucario"
 )
 
 type RedoFunc func(record lucario.WALRecord) error
@@ -128,8 +128,6 @@ func (engine *StorageEngine) RedoSplitLeafNode(record lucario.WALRecord) error {
 	payload := lucario.DecodeSplitLeafNodePayload(record.Payload)
 	slog.Info("Redo: SplitLeafNode", "leftPageId", payload.LeftLeafNodePageId, "rightPageId", payload.RightLeafNodePageId, "separatorKeyIndex", payload.SeparatorKeyIndex, "insertKey", string(payload.InsertKey), "nextLeafNodePageId", payload.NextLeafNodePageId, "lsn", record.LSN)
 
-	fmt.Println("payload.ElementsLength =", payload.ElementsLength)
-	fmt.Println("len(payload.Elements) =", len(payload.Elements))
 	leftLeafNodeWriteGuard, err := engine.bufferPoolManager.NewWriteGuard(payload.LeftLeafNodePageId)
 
 	if err != nil {
