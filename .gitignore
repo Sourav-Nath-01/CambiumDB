@@ -1,0 +1,19 @@
+# Build artifacts
+/CambiumDB
+*.exe
+
+# Database and log files generated at runtime
+*.db
+*.wal
+*.log
+
+# Go workspace / test artifacts
+*.test
+*.out
+go.work
+go.work.sum
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
